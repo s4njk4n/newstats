@@ -3,11 +3,12 @@
  * https://github.com/s4njk4n/XDC_Stats
  *
  * Plain browser JavaScript, no dependencies. Three sources, each polled on its own:
- *   1. XinFin stats server  GET {stats}/v2/snapshot  (nodes, propagation, 40-block charts)
+ *   1. XinFin stats server  live websocket {stream}/primus (mainnet, the same feed xinfin.network uses)
+ *                           or GET {stats}/v2/snapshot (Apothem's newer backend)
  *   2. XDC JSON-RPC         new blocks, masternodes, gas price (with endpoint failover)
  *   3. CoinGecko            price + 24h sparkline (mainnet only)
  *
- * Overrides for testing: ?net=apothem  ?stats=https://host  ?rpc=https://host
+ * Overrides for testing: ?net=apothem  ?stats=https://host  ?rpc=https://host  ?stream=wss://host/primus
  */
 (function () {
   'use strict';
@@ -17,7 +18,10 @@
      ================================================================ */
   var NETS = {
     mainnet: {
-      stats: ['https://stats.xinfin.network', 'https://stats1.xinfin.network'],
+      // Mainnet still runs the classic Node.js ethstats server: live data over a Primus websocket
+      stream: ['wss://stats1.xinfin.network/primus', 'wss://xinfin.network/primus', 'wss://www.xinfin.network/primus'],
+      // REST snapshot (newer Go backend), used only if the websocket can't be reached
+      stats: ['https://stats1.xinfin.network', 'https://stats.xinfin.network'],
       rpc: ['https://rpc.xdc.org', 'https://erpc.xinfin.network', 'https://rpc.ankr.com/xdc', 'https://rpc.xinfin.network'],
       explorer: 'https://xdcscan.com',
       price: true
@@ -100,12 +104,14 @@
     for (var k in c) o[k] = c[k];
     if (qs.get('stats')) o.stats = [qs.get('stats')].concat(c.stats);
     if (qs.get('rpc')) o.rpc = [qs.get('rpc')].concat(c.rpc);
+    if (qs.get('stream') && c.stream) o.stream = [qs.get('stream')].concat(c.stream || []);
     return o;
   }
 
   function freshState() {
     return {
       nodes: [], rows: [], charts: null, snapAt: 0, fromCache: false, statsFail: 0, statsIdx: 0,
+      streamUp: false, streamGaveUp: !NET.stream || !NET.stream.length,
       statsBest: 0, rpcHead: 0, rpcIdx: 0, rpcFail: 0, headSeenAt: 0, headTs: 0,
       blocks: [], mn: null, gasPrice: null, price: null, priceSeries: null,
       pins: new Set(store.get('xdcstats-pins-' + netName) || [])
@@ -116,6 +122,7 @@
      Source 1: stats server snapshot
      ================================================================ */
   function pollStats() {
+    if (!S.streamGaveUp) return Promise.resolve();     // the websocket is (or may be) delivering
     var g = gen, list = NET.stats, i = S.statsIdx;
     function attempt(k) {
       var base = list[(i + k) % list.length];
@@ -179,6 +186,150 @@
       };
     });
     renderAll();
+  }
+
+  /* ================================================================
+     Source 1b: live stream from the classic ethstats server (Primus websocket)
+     Wire format (Primus 6, JSON parser): every frame is JSON.
+       client -> {"emit":["ready"]}, then "primus::ping::<ms>" every 25 s
+       server -> {"emit":["init",{"nodes":[...]}]} then {"action":..., "data":...}
+     ================================================================ */
+  var WS = { sock: null, idx: 0, map: null, charts: null, ping: 0, flushT: 0, retryT: 0, hideT: 0, tries: 0, savedAt: 0, host: '' };
+
+  function streamStop() {
+    clearInterval(WS.ping); clearTimeout(WS.flushT); clearTimeout(WS.retryT); clearTimeout(WS.hideT);
+    WS.flushT = 0;
+    (WS.others || []).forEach(function (o) { o.onclose = o.onerror = o.onmessage = null; try { o.close(); } catch (e) {} });
+    WS.others = []; WS.sock = null;
+    if (S) S.streamUp = false;
+  }
+
+  function streamStart() {
+    streamStop();
+    WS.map = null; WS.charts = null; WS.idx = 0; WS.tries = 0;
+    if (NET.stream && NET.stream.length) streamConnect();
+  }
+
+  function streamConnect() {
+    if (document.hidden || WS.sock) return;          // reconnect happens on visibilitychange
+    var g = gen, list = NET.stream, pending = list.length, winner = null;
+    WS.sock = { racing: true };                       // placeholder so we don't start a second race
+
+    function lost() {
+      // Called when a candidate fails before it delivered anything
+      if (--pending > 0 || winner) return;
+      if (g !== gen) return;
+      WS.sock = null; WS.tries++;
+      if (!S.streamGaveUp) {
+        // No websocket host answered: let the REST snapshot have a go meanwhile
+        S.streamGaveUp = true; S.statsFail++;
+        loops[0] && loops[0].run();
+        renderStatus(); renderTiles();
+      }
+      WS.retryT = setTimeout(streamConnect, Math.min(60000, 2000 * Math.pow(2, Math.min(5, WS.tries))));
+    }
+    function dropped() {
+      // The live connection ended after working: reconnect quickly
+      if (g !== gen) return;
+      clearInterval(WS.ping);
+      WS.sock = null; S.streamUp = false;
+      WS.retryT = setTimeout(streamConnect, 1500);
+    }
+
+    list.forEach(function (url) {
+      var ws, done = false, got = false;
+      function send(obj) { try { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); } catch (e) {} }
+      function end() {
+        if (done) return; done = true; clearTimeout(guard);
+        if (got) dropped(); else lost();
+      }
+      try { ws = new WebSocket(url + (url.indexOf('?') < 0 ? '?' : '&') + '_primuscb=' + Date.now().toString(36)); }
+      catch (e) { done = true; lost(); return; }
+      var guard = setTimeout(function () { if (!got) { try { ws.close(); } catch (e) {} end(); } }, 8000);
+
+      ws.onopen = function () { send({ emit: ['ready'] }); };
+      ws.onerror = end;
+      ws.onclose = end;
+      ws.onmessage = function (e) {
+        if (g !== gen || (winner && winner !== ws)) return;
+        var m;
+        try { m = JSON.parse(e.data); } catch (x) { return; }
+        if (typeof m === 'string') {
+          if (m.indexOf('primus::ping::') === 0) send('primus::pong::' + m.slice(14));
+          else if (m === 'primus::server::close') { try { ws.close(); } catch (x) {} }
+          return;
+        }
+        if (!m || typeof m !== 'object') return;
+        var initNodes = null;
+        if (Array.isArray(m.emit)) { if (m.emit[0] === 'init') initNodes = m.emit[1] && m.emit[1].nodes; else return; }
+        else if (m.action === 'init') initNodes = Array.isArray(m.data) ? m.data : m.data && m.data.nodes;
+        if (initNodes) {
+          if (!Array.isArray(initNodes)) return;
+          if (!winner) {
+            // First host to deliver wins; close the rest
+            winner = ws; got = true; clearTimeout(guard);
+            WS.others && WS.others.forEach(function (o) { if (o !== ws) { o.onclose = o.onerror = o.onmessage = null; try { o.close(); } catch (x) {} } });
+            WS.sock = ws; WS.tries = 0;
+            WS.host = url.replace(/^wss?:\/\//, '').replace(/\/primus.*$/, '');
+            setText('src-stats', WS.host);
+            clearInterval(WS.ping);
+            WS.ping = setInterval(function () { send('primus::ping::' + Date.now()); }, 25000);
+          }
+          return streamAction('init', initNodes);
+        }
+        if (m.action === 'client-ping' && m.data) { send({ emit: ['client-pong', { serverTime: m.data.serverTime, clientTime: Date.now() }] }); return; }
+        if (WS.map) streamAction(m.action, m.data);
+      };
+      (WS.others = WS.others || []).push(ws);
+    });
+    WS.others = WS.others ? WS.others.slice(-list.length) : [];
+
+    function streamAction(action, d) {
+      if (action === 'init') {
+        WS.map = new Map();
+        d.forEach(function (n) { if (n && n.id != null) WS.map.set(n.id, n); });
+        S.streamUp = true; S.statsFail = 0;
+        if (S.streamGaveUp) S.streamGaveUp = false;   // stream is (back) up: stop REST polling
+        return flush(true);
+      }
+      if (action === 'charts') { if (d) { WS.charts = d; dirty(); } return; }
+      if (action === 'blockPropagationChart') { if (d) { WS.charts = WS.charts || {}; WS.charts.propagation = d; dirty(); } return; }
+      if (!d || d.id == null) return;
+      var n = WS.map.get(d.id);
+      if (action === 'add') {
+        WS.map.set(d.id, n ? Object.assign(n, { info: d.info || n.info, geo: d.geo || n.geo, stats: d.stats || n.stats, history: d.history || n.history }) : d);
+        return dirty();
+      }
+      if (!n) return;
+      n.stats = n.stats || {};
+      switch (action) {
+        case 'update': if (d.stats) n.stats = Object.assign(n.stats, d.stats); if (d.history) n.history = d.history; break;
+        case 'block': if (d.block) n.stats.block = d.block; if (d.history) n.history = d.history; break;
+        case 'pending': if (d.pending != null) n.stats.pending = d.pending; break;
+        case 'stats':
+          if (d.stats) ['active', 'peers', 'gasPrice', 'uptime', 'latency', 'mining', 'syncing'].forEach(function (k) { if (d.stats[k] !== undefined) n.stats[k] = d.stats[k]; });
+          break;
+        case 'info': if (d.info) n.info = d.info; break;
+        case 'inactive': if (d.stats) n.stats = Object.assign(n.stats, d.stats); else n.stats.active = false; break;
+        case 'latency': if (d.latency != null) n.stats.latency = d.latency; break;
+        default: return;
+      }
+      dirty();
+    }
+  }
+
+  // Coalesce the stream (dozens of messages a second) into at most one render a second
+  function dirty() { if (!WS.flushT) WS.flushT = setTimeout(function () { flush(false); }, 1000); }
+  function flush(now) {
+    clearTimeout(WS.flushT); WS.flushT = 0;
+    if (!WS.map) return;
+    var nodes = Array.from(WS.map.values());
+    applySnapshot(nodes, WS.charts, Date.now(), false);
+    // Save for an instant first paint next visit (not on every message: it's ~100+ KB)
+    if (now || Date.now() - WS.savedAt > 30000) {
+      WS.savedAt = Date.now();
+      store.set('xdcstats-cache-' + netName, { at: Date.now(), nodes: nodes, charts: WS.charts });
+    }
   }
 
   /* ================================================================
@@ -357,7 +508,14 @@
   every(pollSpark, 600000);
 
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) loops.forEach(function (L) { L.run(); });
+    if (!document.hidden) {
+      loops.forEach(function (L) { L.run(); });
+      clearTimeout(WS.hideT);
+      if (NET && NET.stream && NET.stream.length && !WS.sock) { clearTimeout(WS.retryT); streamConnect(); }
+    } else if (WS.sock) {
+      // Don't hold a busy stream open for a background tab
+      WS.hideT = setTimeout(function () { streamStop(); }, 60000);
+    }
   });
 
   /* ================================================================
@@ -374,6 +532,11 @@
   }
   function tps() {
     if (S.charts && S.charts.avgTransactionRate) return num(S.charts.avgTransactionRate);
+    if (S.charts && S.charts.transactions && S.charts.blocktime && S.charts.blocktime.length > 3) {
+      var tsum = S.charts.transactions.reduce(function (a, v) { return a + num(v); }, 0);
+      var bsum = S.charts.blocktime.reduce(function (a, v) { return a + num(v); }, 0);
+      if (bsum > 0) return tsum / bsum;
+    }
     if (S.blocks.length > 2) {
       var a = S.blocks[0], z = S.blocks[S.blocks.length - 1], tx = 0;
       for (var i = 0; i < S.blocks.length - 1; i++) tx += S.blocks[i].tx;
@@ -447,7 +610,8 @@
   function renderStatus() {
     var el = $('status'), state, text;
     var age = S.snapAt ? Date.now() - S.snapAt : Infinity;
-    if (S.snapAt && !S.fromCache && age < 20000) { state = 'live'; text = 'Live · updated ' + ago(age) + ' ago'; }
+    if (S.streamUp && S.snapAt && !S.fromCache && age < 30000) { state = 'live'; text = 'Live · streaming' + (age > 5000 ? ' · last update ' + ago(age) + ' ago' : ''); }
+    else if (S.snapAt && !S.fromCache && age < 20000) { state = 'live'; text = 'Live · updated ' + ago(age) + ' ago'; }
     else if (S.statsFail >= 1 && S.rpcHead && Date.now() - S.headSeenAt < 30000) { state = 'stale'; text = 'Stats server not responding · blocks still live from RPC'; }
     else if (S.statsFail >= 1 && S.rpcFail >= 1) { state = 'down'; text = 'Can’t reach the data sources, retrying'; }
     else if (S.fromCache) { state = 'stale'; text = 'Showing saved data from ' + ago(age) + ' ago, refreshing…'; }
@@ -938,6 +1102,7 @@
 
   function start(name) {
     gen++;
+    streamStop();
     netName = name; NET = cfg(name); S = freshState(); lastBest = 0;
     store.set('xdcstats-net', name);
     document.querySelectorAll('.netswitch button').forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-net') === name); });
@@ -964,6 +1129,7 @@
     else renderAll();
 
     loops.forEach(function (L) { L.fails = 0; L.busy = false; L.run(); });
+    streamStart();
   }
 
   document.querySelectorAll('.netswitch button').forEach(function (b) {
