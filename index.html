@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>XDC Network Stats, live | XDC Outpost</title>
+  <meta name="license" content="MIT">
+  <meta name="description" content="Live XDC Network stats: best block, block time, TPS, masternodes, epoch progress, node versions, locations and a full node table. Fast, lightweight and free.">
+  <link rel="canonical" href="https://xdcoutpost.xyz/XDC_Stats/">
+  <meta name="theme-color" content="#0B0D1A">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://xdcoutpost.xyz/XDC_Stats/">
+  <meta property="og:title" content="XDC Network Stats, live">
+  <meta property="og:description" content="Best block, block time, TPS, masternodes, epoch progress and every reporting node on one fast page.">
+  <meta property="og:image" content="https://xdcoutpost.xyz/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@s4njk4n">
+
+  <!-- Open the data connections while the page is still parsing -->
+  <link rel="preconnect" href="https://stats.xinfin.network" crossorigin>
+  <link rel="preconnect" href="https://rpc.xdc.org" crossorigin>
+  <link rel="preconnect" href="https://api.coingecko.com" crossorigin>
+  <link rel="preload" href="/assets/fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/assets/fonts/instrument-sans.woff2" as="font" type="font/woff2" crossorigin>
+
+  <style>
+    @font-face {
+      font-family: "Bricolage";
+      src: url("/assets/fonts/bricolage.woff2") format("woff2-variations");
+      font-weight: 200 800; font-stretch: 75% 100%; font-display: swap;
+    }
+    @font-face {
+      font-family: "Instrument Sans";
+      src: url("/assets/fonts/instrument-sans.woff2") format("woff2-variations");
+      font-weight: 400 700; font-stretch: 75% 100%; font-display: swap;
+    }
+
+    /* ---- Shared XDC Outpost tokens ---- */
+    :root {
+      --night: #0B0D1A;
+      --deep: #090B16;
+      --dusk: #151931;
+      --line: #262C4A;
+      --line-2: #363D63;
+      --ink: #EEF0FA;
+      --mist: #9EA4BF;
+      --faint: #6E7594;
+      --signal: #6FDFFF;
+      --flare: #FF8FB4;
+      --ok: #7EEBC0;
+      --amber: #FFD38A;
+      --display: "Bricolage", "Avenir Next", "Segoe UI", sans-serif;
+      --body: "Instrument Sans", "Helvetica Neue", "Segoe UI", sans-serif;
+      --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+      --wrap: 76rem;
+      --gutter: clamp(1.25rem, 4vw, 2.5rem);
+      --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 5.5rem; }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    body {
+      margin: 0; background: var(--night); color: var(--ink);
+      font-family: var(--body); font-size: 1.0625rem; line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--signal); text-underline-offset: 0.2em; }
+    a:hover { color: var(--ink); }
+    button { font: inherit; color: inherit; }
+    :focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: 4px; }
+    [hidden] { display: none !important; }
+    .wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 var(--gutter); }
+    .nb { white-space: nowrap; }
+    .num { font-variant-numeric: tabular-nums; }
+    .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .skip { position: absolute; left: 1rem; top: -3rem; background: var(--signal); color: var(--night); padding: 0.5rem 1rem; border-radius: 6px; font-weight: 600; z-index: 2000; }
+    .skip:focus { top: 1rem; }
+
+    /* ---------- Header (same pattern as the other Outpost tool pages) ---------- */
+    .site-header .wrap { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    .crumbs { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+    .brand {
+      display: flex; align-items: center; gap: 0.6rem; white-space: nowrap;
+      color: var(--ink); text-decoration: none;
+      font-family: var(--display); font-weight: 700; letter-spacing: -0.01em;
+    }
+    .brand svg { flex: none; }
+    .crumbs .sep { font-size: 1.3rem; }
+    .crumbs .here { font-weight: 600; white-space: nowrap; }
+    .site-nav { display: flex; }
+    .site-nav a { color: var(--mist); text-decoration: none; font-size: 0.94rem; font-weight: 500; white-space: nowrap; }
+    @media (max-width: 760px) { .site-nav .wide { display: none; } }
+    @media (max-width: 420px) { .crumbs .sep, .crumbs .here { display: none; } }
+
+    /* ---------- Hero ---------- */
+    .hero { padding: clamp(2.5rem, 6vw, 4.25rem) 0 clamp(2rem, 4vw, 3rem); }
+    .hero-grid { display: grid; gap: 2rem 4rem; align-items: center; }
+    @media (min-width: 1000px) { .hero-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); } }
+    .hero h1 {
+      font-family: var(--display); font-weight: 780; font-stretch: 75%;
+      font-size: clamp(2.9rem, 7.5vw, 5.6rem); line-height: 0.9; letter-spacing: -0.035em;
+      margin: 0 0 1.25rem; text-wrap: balance;
+    }
+    .hero h1 .ghost { color: var(--night); -webkit-text-stroke: 2.5px rgb(238 240 250 / 0.6); paint-order: stroke fill; }
+    .hero .lede { font-size: clamp(1.05rem, 1.8vw, 1.2rem); color: var(--mist); margin: 0 0 1.6rem; max-width: 32em; }
+
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.25rem; }
+    .netswitch {
+      display: inline-flex; padding: 0.25rem; gap: 0.2rem;
+      border-radius: 999px; border: 1px solid var(--line-2); background: rgb(6 7 16 / 0.5);
+    }
+    .netswitch button {
+      border: 0; background: none; cursor: pointer; white-space: nowrap;
+      padding: 0.45rem 1rem; border-radius: 999px; color: var(--mist); font-size: 0.92rem; font-weight: 600;
+      transition: color 0.15s, background-color 0.2s;
+    }
+    .netswitch button:hover { color: var(--ink); }
+    .netswitch button[aria-pressed="true"] { background: var(--ink); color: var(--night); }
+
+    .status { display: inline-flex; align-items: center; gap: 0.55rem; font-size: 0.9rem; color: var(--mist); }
+    .status .dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--faint); flex: none; }
+    .status[data-state="live"] { color: var(--ok); }
+    .status[data-state="live"] .dot { background: var(--ok); animation: live 2.4s ease-out infinite; }
+    .status[data-state="stale"] { color: var(--amber); }
+    .status[data-state="stale"] .dot { background: var(--amber); }
+    .status[data-state="down"] { color: var(--flare); }
+    .status[data-state="down"] .dot { background: var(--flare); }
+    @keyframes live { 0% { box-shadow: 0 0 0 0 rgb(126 235 192 / 0.55); } 70%, 100% { box-shadow: 0 0 0 9px rgb(126 235 192 / 0); } }
+
+    /* Console: best block + epoch */
+    .console {
+      position: relative; border-radius: 22px; padding: clamp(1.4rem, 3vw, 2rem);
+      background:
+        linear-gradient(180deg, rgb(26 30 56 / 0.8), rgb(14 16 32 / 0.9)) padding-box,
+        linear-gradient(140deg, rgb(111 223 255 / 0.6), rgb(150 165 230 / 0.12) 40%, rgb(255 143 180 / 0.55)) border-box;
+      border: 1px solid transparent;
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+      box-shadow: 0 40px 100px -30px rgb(0 0 0 / 0.75), 0 0 80px -30px rgb(111 223 255 / 0.22);
+    }
+    .console-top { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; margin: 0 0 0.25rem; }
+    .eyebrow { font-size: 0.8rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mist); margin: 0; }
+    .age { font-family: var(--mono); font-size: 0.85rem; color: var(--mist); }
+    .age[data-slow] { color: var(--amber); }
+    .best {
+      font-family: var(--display); font-weight: 760; font-stretch: 78%;
+      font-size: clamp(3rem, 8.5vw, 5.4rem); line-height: 1; letter-spacing: -0.02em;
+      margin: 0.1rem 0 1.25rem; font-variant-numeric: tabular-nums;
+      display: flex; align-items: baseline; gap: 0.4rem;
+    }
+    .best .hash { color: var(--signal); font-size: 0.5em; font-weight: 600; }
+    .best.tick { animation: tick 0.6s var(--ease); }
+    @keyframes tick { 0% { color: var(--signal); text-shadow: 0 0 30px rgb(111 223 255 / 0.6); } 100% { color: var(--ink); text-shadow: none; } }
+
+    .beat { display: flex; gap: 3px; height: 1.6rem; align-items: flex-end; margin: 0 0 1.25rem; }
+    .beat i { flex: 1; border-radius: 2px; background: rgb(111 223 255 / 0.25); min-height: 3px; transition: height 0.4s var(--ease); }
+    .beat i.slow { background: rgb(255 211 138 / 0.55); }
+    .beat i:last-child { background: var(--signal); box-shadow: 0 0 10px rgb(111 223 255 / 0.6); }
+
+    .epoch { padding: 1rem 0 0; border-top: 1px solid var(--line); }
+    .epoch-head { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.92rem; margin: 0 0 0.55rem; }
+    .epoch-head strong { font-weight: 600; }
+    .epoch-head span { color: var(--mist); }
+    .meter { height: 0.5rem; border-radius: 999px; background: rgb(255 255 255 / 0.06); overflow: hidden; }
+    .meter > i {
+      display: block; height: 100%; width: 0; border-radius: 999px;
+      background: linear-gradient(90deg, var(--signal), var(--flare));
+      box-shadow: 0 0 14px rgb(111 223 255 / 0.45);
+      transition: width 0.6s var(--ease);
+    }
+    .console-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin: 1.25rem 0 0; }
+    .console-foot div { min-width: 0; }
+    .console-foot dt { font-size: 0.78rem; color: var(--mist); }
+    .console-foot dd { margin: 0; font-family: var(--display); font-weight: 680; font-size: 1.25rem; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* ---------- Tiles ---------- */
+    .band { background: var(--deep); padding: clamp(2rem, 5vw, 3.25rem) 0; border-top: 1px solid var(--line); }
+    .band.plain { background: none; }
+    .tiles { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 10.75rem), 1fr)); }
+    @media (max-width: 520px) { .tiles { grid-template-columns: 1fr 1fr; gap: 0.6rem; } .tile .v { font-size: 1.65rem; } .tile { padding: 0.85rem 0.9rem; } }
+    .tile {
+      position: relative; overflow: hidden;
+      padding: 1rem 1.1rem 1.05rem; border-radius: 14px;
+      background: linear-gradient(180deg, rgb(26 30 56 / 0.55), rgb(19 22 43 / 0.35));
+      border: 1px solid var(--line);
+      min-height: 7.4rem; display: flex; flex-direction: column;
+    }
+    .tile h3 { margin: 0 0 0.35rem; font-size: 0.82rem; font-weight: 600; color: var(--mist); display: flex; align-items: center; gap: 0.45rem; }
+    .tile h3 svg { width: 0.95rem; height: 0.95rem; stroke: var(--signal); fill: none; stroke-width: 2; flex: none; }
+    .tile .v { font-family: var(--display); font-weight: 720; font-stretch: 85%; font-size: 2rem; line-height: 1.05; letter-spacing: -0.015em; font-variant-numeric: tabular-nums; }
+    .tile .v small { font-size: 0.5em; font-weight: 600; color: var(--mist); margin-left: 0.2rem; letter-spacing: 0; }
+    .tile .s { margin-top: auto; padding-top: 0.45rem; font-size: 0.84rem; color: var(--mist); }
+    .tile .up { color: var(--ok); }
+    .tile .down { color: var(--flare); }
+    .tile.has-spark { padding-bottom: 2.6rem; }
+    .tile .spark { position: absolute; left: 0; right: 0; bottom: 0; height: 2.2rem; width: 100%; opacity: 0.8; pointer-events: none; }
+    .tile .bar { height: 0.35rem; margin-top: 0.6rem; border-radius: 999px; background: rgb(255 255 255 / 0.06); overflow: hidden; display: flex; }
+    .tile .bar i { display: block; height: 100%; }
+    .skel { color: transparent !important; background: linear-gradient(90deg, rgb(255 255 255 / 0.04), rgb(255 255 255 / 0.09), rgb(255 255 255 / 0.04)); background-size: 200% 100%; border-radius: 6px; animation: shimmer 1.4s linear infinite; }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+
+    /* ---------- Section heads ---------- */
+    .sec-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 0.75rem 2rem; margin: 0 0 1.5rem; }
+    .sec-head h2 {
+      font-family: var(--display); font-weight: 760; font-stretch: 80%;
+      font-size: clamp(1.9rem, 4vw, 2.7rem); letter-spacing: -0.03em; line-height: 0.98; margin: 0;
+    }
+    .sec-head p { color: var(--mist); margin: 0; max-width: 34em; font-size: 0.97rem; }
+
+    /* ---------- Charts + block feed ---------- */
+    .activity { display: grid; gap: 0.75rem; }
+    @media (min-width: 1000px) { .activity { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); } }
+    .charts { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); grid-auto-rows: 1fr; }
+    .chart { display: flex; flex-direction: column; }
+    .chart, .feed, .mapbox, .dist {
+      border-radius: 14px; border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgb(26 30 56 / 0.5), rgb(19 22 43 / 0.3));
+      padding: 1rem 1.1rem;
+    }
+    .chart header { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; margin: 0 0 0.6rem; }
+    .chart h3 { margin: 0; font-size: 0.9rem; font-weight: 600; }
+    .chart .read { font-family: var(--mono); font-size: 0.82rem; color: var(--mist); white-space: nowrap; }
+    .chart canvas { display: block; width: 100%; height: 7.5rem; flex: 1 1 7.5rem; min-height: 7.5rem; cursor: crosshair; touch-action: pan-y; }
+    .chart .axis { display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--faint); margin-top: 0.3rem; }
+
+    .feed { display: flex; flex-direction: column; }
+    .feed header { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 0.6rem; }
+    .feed h3 { margin: 0; font-size: 0.9rem; font-weight: 600; }
+    .feed header span { font-size: 0.78rem; color: var(--faint); }
+    .blocks { list-style: none; margin: 0; padding: 0; flex: 1; overflow: hidden; position: relative; }
+    .blocks li {
+      display: grid; grid-template-columns: auto 1fr auto; gap: 0.15rem 0.85rem; align-items: center;
+      padding: 0.6rem 0.25rem; border-bottom: 1px solid var(--line);
+    }
+    .blocks li:last-child { border-bottom: 0; }
+    .blocks li.new { animation: slidein 0.55s var(--ease); }
+    @keyframes slidein { from { opacity: 0; transform: translateY(-10px); background: rgb(111 223 255 / 0.08); } }
+    .blocks .cube {
+      grid-row: span 2; width: 2.2rem; height: 2.2rem; border-radius: 9px; display: grid; place-items: center;
+      background: rgb(111 223 255 / 0.08); border: 1px solid rgb(111 223 255 / 0.25);
+    }
+    .blocks .cube svg { width: 1.05rem; height: 1.05rem; stroke: var(--signal); fill: none; stroke-width: 1.75; }
+    .blocks a { color: var(--ink); font-family: var(--mono); font-size: 0.9rem; font-weight: 600; text-decoration: none; }
+    .blocks a:hover { color: var(--signal); text-decoration: underline; }
+    .blocks .meta { grid-column: 2; font-size: 0.78rem; color: var(--mist); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .blocks .txs { grid-row: span 2; text-align: right; font-size: 0.82rem; color: var(--mist); }
+    .blocks .txs b { display: block; color: var(--ink); font-size: 1rem; font-variant-numeric: tabular-nums; }
+    .empty { color: var(--mist); font-size: 0.9rem; padding: 1rem 0; margin: 0; }
+
+    /* ---------- Map + distributions ---------- */
+    .geo { display: grid; gap: 0.75rem; }
+    @media (min-width: 1000px) { .geo { grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); } }
+    .mapbox { padding: 0.75rem; position: relative; display: flex; flex-direction: column; justify-content: center; }
+    .mapbox canvas { display: block; width: 100%; aspect-ratio: 240 / 93; }
+    .legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; padding: 0.5rem 0.4rem 0.1rem; font-size: 0.8rem; color: var(--mist); }
+    .legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+    .legend i { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
+    .maptip {
+      position: absolute; pointer-events: none; z-index: 5; transform: translate(-50%, calc(-100% - 12px));
+      background: rgb(17 20 38 / 0.95); border: 1px solid var(--line-2); border-radius: 9px;
+      padding: 0.4rem 0.65rem; font-size: 0.8rem; white-space: nowrap; box-shadow: 0 10px 30px -10px #000;
+    }
+    .dists { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); margin-top: 0.75rem; }
+    .dist h3 { margin: 0 0 0.7rem; font-size: 0.9rem; font-weight: 600; display: flex; justify-content: space-between; }
+    .dist h3 span { color: var(--faint); font-weight: 500; font-size: 0.8rem; }
+    .hbars { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+    .hbars li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.2rem 0.75rem; font-size: 0.86rem; }
+    .hbars .k { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hbars .n { color: var(--mist); font-variant-numeric: tabular-nums; }
+    .hbars .track { grid-column: 1 / -1; height: 0.3rem; border-radius: 999px; background: rgb(255 255 255 / 0.05); overflow: hidden; }
+    .hbars .track i { display: block; height: 100%; border-radius: 999px; background: var(--c, var(--signal)); transition: width 0.5s var(--ease); }
+    .geo .dist { height: 100%; }
+
+    /* ---------- Node table ---------- */
+    .tbar { display: flex; flex-wrap: wrap; gap: 0.6rem 0.75rem; align-items: center; margin: 0 0 0.9rem; }
+    .search { position: relative; flex: 1 1 16rem; max-width: 26rem; }
+    .search svg { position: absolute; left: 0.85rem; top: 50%; transform: translateY(-50%); width: 1rem; height: 1rem; stroke: var(--mist); fill: none; stroke-width: 2; pointer-events: none; }
+    .search input {
+      width: 100%; height: 2.6rem; padding: 0 0.9rem 0 2.4rem;
+      border-radius: 10px; border: 1px solid var(--line-2); background: rgb(6 7 16 / 0.65);
+      color: var(--ink); font: inherit; font-size: 0.95rem;
+    }
+    .search input:focus { outline: none; border-color: var(--signal); box-shadow: 0 0 0 4px rgb(111 223 255 / 0.12); }
+    .search input::placeholder { color: var(--faint); }
+    .filters { display: flex; gap: 0.25rem; padding: 0.25rem; border-radius: 999px; border: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+    .filters::-webkit-scrollbar { display: none; }
+    .filters button {
+      border: 0; background: none; cursor: pointer; white-space: nowrap;
+      padding: 0.4rem 0.85rem; border-radius: 999px; color: var(--mist); font-size: 0.88rem; font-weight: 500;
+      display: inline-flex; gap: 0.4rem; align-items: center;
+    }
+    .filters button:hover { color: var(--ink); }
+    .filters button[aria-pressed="true"] { background: var(--ink); color: var(--night); }
+    .filters .n { font-size: 0.74rem; opacity: 0.65; font-variant-numeric: tabular-nums; }
+    .tcount { margin-left: auto; font-size: 0.85rem; color: var(--mist); }
+
+    .tablewrap { border: 1px solid var(--line); border-radius: 14px; overflow: auto; background: rgb(19 22 43 / 0.45); max-height: 44rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    thead th {
+      position: sticky; top: 0; z-index: 2; background: #121530;
+      text-align: left; font-weight: 600; font-size: 0.78rem; color: var(--mist); white-space: nowrap;
+      padding: 0; border-bottom: 1px solid var(--line-2);
+    }
+    thead th button {
+      all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 0.3rem; width: 100%;
+      padding: 0.7rem 0.75rem; cursor: pointer;
+    }
+    thead th button:hover { color: var(--ink); }
+    thead th button:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
+    thead th[aria-sort] button { color: var(--ink); }
+    thead th[aria-sort="ascending"] button::after { content: "↑"; color: var(--signal); }
+    thead th[aria-sort="descending"] button::after { content: "↓"; color: var(--signal); }
+    th.r button, td.r { justify-content: flex-end; text-align: right; }
+    tbody td { padding: 0.55rem 0.75rem; border-bottom: 1px solid rgb(38 44 74 / 0.7); white-space: nowrap; font-variant-numeric: tabular-nums; }
+    tbody tr:hover td { background: rgb(255 255 255 / 0.025); }
+    tbody tr.pinned td { background: rgb(111 223 255 / 0.04); }
+    td.pin { width: 2.25rem; padding-right: 0; }
+    .pinbtn { border: 0; background: none; cursor: pointer; padding: 0.15rem; color: var(--faint); line-height: 0; border-radius: 6px; }
+    .pinbtn svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 1.8; }
+    .pinbtn:hover { color: var(--ink); }
+    .pinned .pinbtn { color: var(--amber); }
+    .pinned .pinbtn svg { fill: currentColor; }
+    .nname { display: flex; align-items: center; gap: 0.55rem; max-width: 19rem; }
+    .nname b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+    .nname em { font-style: normal; color: var(--faint); font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; }
+    .sdot { width: 0.5rem; height: 0.5rem; border-radius: 50%; flex: none; background: var(--c); box-shadow: 0 0 8px var(--c); }
+    .c-ok { --c: var(--ok); }
+    .c-lag { --c: var(--amber); }
+    .c-off { --c: #5A6080; box-shadow: none !important; }
+    .t-ok { color: var(--ok); }
+    .t-lag { color: var(--amber); }
+    .t-bad { color: var(--flare); }
+    .t-dim { color: var(--faint); }
+    .hist { display: inline-flex; gap: 1px; align-items: flex-end; height: 1rem; vertical-align: middle; }
+    .hist i { width: 3px; border-radius: 1px; background: var(--c, var(--ok)); opacity: 0.85; }
+    .tfoot { display: flex; justify-content: center; padding: 0.9rem 0 0; }
+    .btn-ghost {
+      display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer;
+      padding: 0.55rem 1rem; border-radius: 10px; border: 1px solid var(--line-2); background: none;
+      color: var(--ink); font-weight: 600; font-size: 0.9rem; text-decoration: none;
+    }
+    .btn-ghost:hover { border-color: var(--signal); background: rgb(111 223 255 / 0.05); color: var(--ink); }
+
+    /* ---------- About ---------- */
+    .about { padding: clamp(3rem, 6vw, 4.5rem) 0; border-top: 1px solid var(--line); }
+    .about .wrap { display: grid; gap: 2rem 4rem; }
+    @media (min-width: 900px) { .about .wrap { grid-template-columns: 1fr 1fr; } }
+    .about h2 { font-family: var(--display); font-weight: 760; font-stretch: 80%; font-size: clamp(1.8rem, 3.5vw, 2.4rem); letter-spacing: -0.03em; line-height: 1; margin: 0 0 1rem; }
+    .about p, .about li { color: var(--mist); font-size: 0.97rem; }
+    .about p { margin: 0 0 1rem; max-width: 34em; }
+    .about ul { margin: 0; padding-left: 1.1rem; }
+    .about li { margin: 0 0 0.55rem; }
+    .about li strong, .about p strong { color: var(--ink); font-weight: 600; }
+    .about li::marker { color: var(--signal); }
+    .about code { font-family: var(--mono); font-size: 0.85em; color: var(--ink); }
+
+    .site-footer { border-top: 1px solid var(--line); padding: 2rem 0 calc(2rem + env(safe-area-inset-bottom)); color: var(--mist); font-size: 0.9rem; }
+    .site-footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; }
+    .site-footer p { margin: 0; }
+
+    /* Chart tooltip */
+    .tip {
+      position: fixed; z-index: 1500; pointer-events: none;
+      background: rgb(17 20 38 / 0.96); border: 1px solid var(--line-2); border-radius: 9px;
+      padding: 0.35rem 0.6rem; font-size: 0.8rem; white-space: nowrap;
+      box-shadow: 0 10px 30px -10px #000; transform: translate(-50%, calc(-100% - 10px));
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+    }
+  </style>
+  <link rel="stylesheet" href="/assets/outpost.css">
+  <script src="/assets/outpost.js" defer></script>
+  <script src="/assets/analytics.js"></script>
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "XDC Network Stats",
+    "url": "https://xdcoutpost.xyz/XDC_Stats/",
+    "description": "Live XDC Network stats: best block, block time, TPS, masternodes, epoch progress, node versions, locations and a full node table.",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "Web browser",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Person", "name": "s4njk4n", "url": "https://xdcoutpost.xyz/", "sameAs": ["https://github.com/s4njk4n", "https://x.com/s4njk4n", "https://t.me/s4njk4n"] },
+    "codeRepository": "https://github.com/s4njk4n/XDC_Stats"
+  }
+  </script>
+</head>
+<body>
+  <a class="skip" href="#nodes">Skip to the node table</a>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-beacon" viewBox="0 0 32 32">
+      <path d="M11 29 L16 11 L21 29 M12.6 23 H19.4 M13.8 18 H18.2" fill="none" stroke="#C3B8EA" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="16" cy="7.5" r="3" fill="#FF8FB4"/>
+      <path d="M9.5 4.5 A9 9 0 0 0 9.5 10.5 M22.5 4.5 A9 9 0 0 1 22.5 10.5" fill="none" stroke="#FF8FB4" stroke-width="1.75" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-cube" viewBox="0 0 24 24"><path d="M12 2.8 20 7.4v9.2L12 21.2 4 16.6V7.4z M4 7.4l8 4.6 8-4.6 M12 12v9.2" stroke-linejoin="round"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.9z" stroke-linejoin="round"/></symbol>
+    <symbol id="i-nodes" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/><path d="M7 7h.01M7 17h.01"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2.5 4.5 13.5H12l-1 8 8.5-11H12z" stroke-linejoin="round"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12h3l2.5-6 4 12 3-9 2 3H21"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 5 6v5.5c0 4.4 3 8 7 9.5 4-1.5 7-5.1 7-9.5V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 3.5 5.4 3.5 8.5S14.5 17.9 12 20.5C9.5 17.9 8.5 15.1 8.5 12S9.5 6.1 12 3.5"/></symbol>
+    <symbol id="i-coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9 9.5 15 14.5M15 9.5 9 14.5"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.930 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></symbol>
+  </svg>
+
+  <header class="site-header">
+    <div class="wrap">
+      <div class="crumbs">
+        <a class="brand" href="/"><svg aria-hidden="true"><use href="#i-beacon"/></svg>XDC Outpost</a>
+        <span class="sep" aria-hidden="true">/</span>
+        <span class="here">Network Stats</span>
+      </div>
+      <nav class="site-nav" aria-label="Main">
+        <a href="/#tools">All tools</a>
+        <a class="wide" href="#map">Map</a>
+        <a href="#nodes">Nodes</a>
+        <a class="wide" href="https://github.com/s4njk4n/XDC_Stats" target="_blank" rel="noopener" data-goatcounter-click="github/XDC_Stats">Source code</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="title">
+      <div class="wrap hero-grid">
+        <div>
+          <h1 id="title">XDC Network, <span class="ghost">live</span></h1>
+          <p class="lede">Every reporting node, the latest blocks, masternodes and epoch progress on one fast page. It reads the official stats feed and the chain directly from your browser.</p>
+          <div class="controls">
+            <div class="netswitch" role="group" aria-label="Network">
+              <button type="button" data-net="mainnet" aria-pressed="true">Mainnet</button>
+              <button type="button" data-net="apothem" aria-pressed="false">Apothem testnet</button>
+            </div>
+            <p class="status" id="status" data-state="idle" role="status"><span class="dot" aria-hidden="true"></span><span id="status-text">Connecting…</span></p>
+          </div>
+        </div>
+
+        <aside class="console" aria-label="Chain head">
+          <div class="console-top">
+            <p class="eyebrow">Best block</p>
+            <span class="age" id="age" title="Time since the last block">–</span>
+          </div>
+          <p class="best" id="best"><span class="hash">#</span><span id="best-n" class="skel">00,000,000</span></p>
+          <div class="beat" id="beat" aria-hidden="true"></div>
+          <div class="epoch">
+            <div class="epoch-head"><strong id="epoch-label">Epoch –</strong><span id="epoch-eta">–</span></div>
+            <div class="meter" role="progressbar" aria-label="Epoch progress" aria-valuemin="0" aria-valuemax="900" id="epoch-meter"><i id="epoch-fill"></i></div>
+          </div>
+          <dl class="console-foot">
+            <div><dt>Avg block time</dt><dd id="c-bt">–</dd></div>
+            <div><dt>Transactions/s</dt><dd id="c-tps">–</dd></div>
+            <div><dt>Gas price</dt><dd id="c-gas">–</dd></div>
+          </dl>
+        </aside>
+      </div>
+    </section>
+
+    <section class="band" aria-label="Key figures">
+      <div class="wrap">
+        <div class="tiles">
+          <article class="tile">
+            <h3><svg aria-hidden="true"><use href="#i-nodes"/></svg>Nodes in sync</h3>
+            <div class="v" id="t-nodes"><span class="skel">000</span></div>
+            <div class="bar" id="t-nodes-bar" aria-hidden="true"></div>
+            <div class="s" id="t-nodes-s">&nbsp;</div>
+          </article>
+          <article class="tile">
+            <h3><svg aria-hidden="true"><use href="#i-shield"/></svg>Masternodes</h3>
+            <div class="v" id="t-mn"><span class="skel">000</span></div>
+            <div class="s" id="t-mn-s">&nbsp;</div>
+          </article>
+          <article class="tile">
+            <h3><svg aria-hidden="true"><use href="#i-wave"/></svg>Block propagation</h3>
+            <div class="v" id="t-prop"><span class="skel">000</span></div>
+            <div class="s" id="t-prop-s">&nbsp;</div>
+          </article>
+          <article class="tile">
+            <h3><svg aria-hidden="true"><use href="#i-clock"/></svg>Avg latency</h3>
+            <div class="v" id="t-lat"><span class="skel">000</span></div>
+            <div class="s" id="t-lat-s">&nbsp;</div>
+          </article>
+          <article class="tile">
+            <h3><svg aria-hidden="true"><use href="#i-globe"/></svg>Countries</h3>
+            <div class="v" id="t-geo"><span class="skel">00</span></div>
+            <div class="s" id="t-geo-s">&nbsp;</div>
+          </article>
+          <article class="tile has-spark" id="tile-price">
+            <h3><svg aria-hidden="true"><use href="#i-coin"/></svg>XDC price</h3>
+            <div class="v" id="t-price"><span class="skel">$0.0000</span></div>
+            <div class="s" id="t-price-s">&nbsp;</div>
+            <canvas class="spark" id="price-spark" aria-hidden="true"></canvas>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="band plain" aria-labelledby="activity-title">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2 id="activity-title">Chain activity</h2>
+          <p>The last 40 blocks as seen by the stats server, and new blocks straight from the chain as they land.</p>
+        </div>
+        <div class="activity">
+          <div class="charts">
+            <figure class="chart" style="margin:0">
+              <header><h3>Block time</h3><span class="read" id="r-bt">–</span></header>
+              <canvas id="ch-bt" role="img" aria-label="Block time for the last 40 blocks"></canvas>
+              <div class="axis"><span>40 blocks ago</span><span>now</span></div>
+            </figure>
+            <figure class="chart" style="margin:0">
+              <header><h3>Transactions per block</h3><span class="read" id="r-tx">–</span></header>
+              <canvas id="ch-tx" role="img" aria-label="Transactions per block for the last 40 blocks"></canvas>
+              <div class="axis"><span>40 blocks ago</span><span>now</span></div>
+            </figure>
+            <figure class="chart" style="margin:0">
+              <header><h3>Gas used per block</h3><span class="read" id="r-gas">–</span></header>
+              <canvas id="ch-gas" role="img" aria-label="Gas used per block for the last 40 blocks"></canvas>
+              <div class="axis"><span>40 blocks ago</span><span>now</span></div>
+            </figure>
+            <figure class="chart" style="margin:0">
+              <header><h3>Propagation across nodes</h3><span class="read" id="r-prop">–</span></header>
+              <canvas id="ch-prop" role="img" aria-label="How quickly nodes received recent blocks"></canvas>
+              <div class="axis"><span id="ax-prop-0">0 s</span><span id="ax-prop-1">slower</span></div>
+            </figure>
+          </div>
+          <section class="feed" aria-labelledby="feed-title">
+            <header><h3 id="feed-title">Latest blocks</h3><span id="feed-src">from the chain</span></header>
+            <ul class="blocks" id="blocks"><li class="empty" style="display:block">Waiting for the first block…</li></ul>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" id="map" aria-labelledby="map-title">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2 id="map-title">Where the nodes are</h2>
+          <p>Approximate locations from each node’s IP address, as reported by the stats server.</p>
+        </div>
+        <div class="geo">
+          <div class="mapbox">
+            <canvas id="worldmap" role="img" aria-label="World map of reporting XDC nodes"></canvas>
+            <div class="maptip" id="maptip" hidden></div>
+            <div class="legend">
+              <span style="--c: var(--ok)"><i></i>In sync</span>
+              <span style="--c: var(--amber)"><i></i>Behind</span>
+              <span style="--c: #5A6080"><i></i>Offline</span>
+            </div>
+          </div>
+          <div class="dist"><h3>Top countries <span id="d-geo-n"></span></h3><ul class="hbars" id="d-geo"></ul></div>
+        </div>
+        <div class="dists">
+          <div class="dist"><h3>Client version <span id="d-ver-n"></span></h3><ul class="hbars" id="d-ver"></ul></div>
+          <div class="dist"><h3>Go version <span id="d-go-n"></span></h3><ul class="hbars" id="d-go"></ul></div>
+          <div class="dist"><h3>Operating system <span id="d-os-n"></span></h3><ul class="hbars" id="d-os"></ul></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="band plain" id="nodes" aria-labelledby="nodes-title">
+      <div class="wrap">
+        <div class="sec-head">
+          <h2 id="nodes-title">All nodes</h2>
+          <p>Pin your own nodes to keep them at the top. Pins are saved in this browser only.</p>
+        </div>
+        <div class="tbar">
+          <label class="search">
+            <span class="sr">Search nodes</span>
+            <svg aria-hidden="true"><use href="#i-search"/></svg>
+            <input type="search" id="q" placeholder="Search name, version, country, coinbase…" autocomplete="off" spellcheck="false">
+          </label>
+          <div class="filters" role="group" aria-label="Show nodes">
+            <button type="button" data-f="all" aria-pressed="true">All <span class="n" id="f-all"></span></button>
+            <button type="button" data-f="ok" aria-pressed="false">In sync <span class="n" id="f-ok"></span></button>
+            <button type="button" data-f="lag" aria-pressed="false">Behind <span class="n" id="f-lag"></span></button>
+            <button type="button" data-f="off" aria-pressed="false">Offline <span class="n" id="f-off"></span></button>
+            <button type="button" data-f="pin" aria-pressed="false">Pinned <span class="n" id="f-pin"></span></button>
+          </div>
+          <span class="tcount" id="tcount" aria-live="polite"></span>
+        </div>
+        <div class="tablewrap">
+          <table>
+            <caption class="sr">Nodes reporting to the XDC stats server</caption>
+            <thead>
+              <tr>
+                <th scope="col"><span class="sr">Pinned</span></th>
+                <th scope="col" data-k="name"><button type="button">Node</button></th>
+                <th scope="col" data-k="ver"><button type="button">Version</button></th>
+                <th scope="col" class="r" data-k="block"><button type="button">Block</button></th>
+                <th scope="col" class="r" data-k="prop"><button type="button">Propagation</button></th>
+                <th scope="col" data-k="hist"><button type="button" tabindex="-1" disabled style="cursor:default">Recent blocks</button></th>
+                <th scope="col" class="r" data-k="lat"><button type="button">Latency</button></th>
+                <th scope="col" class="r" data-k="peers"><button type="button">Peers</button></th>
+                <th scope="col" class="r" data-k="pend"><button type="button">Pending</button></th>
+                <th scope="col" class="r" data-k="up"><button type="button">Uptime</button></th>
+                <th scope="col" data-k="loc"><button type="button">Location</button></th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <div class="tfoot"><button type="button" class="btn-ghost" id="more" hidden>Show all nodes</button></div>
+      </div>
+    </section>
+
+    <section class="about" aria-labelledby="about-title">
+      <div class="wrap">
+        <div>
+          <h2 id="about-title">Why it’s fast</h2>
+          <p>This page is one small HTML file and one script, with no framework and nothing to download before it can draw.</p>
+          <ul>
+            <li><strong>Instant first view.</strong> The last snapshot is kept in your browser, so a return visit shows numbers straight away and then refreshes them.</li>
+            <li><strong>Light drawing.</strong> Charts and the map are drawn on canvas, the map is built into the page, and the table only draws the rows you can see.</li>
+            <li><strong>Polite polling.</strong> Updates pause when the tab is hidden and back off if a source is struggling.</li>
+            <li><strong>Straight to the chain.</strong> New blocks, masternodes and epochs come from public XDC RPC, with automatic failover between endpoints.</li>
+          </ul>
+        </div>
+        <div>
+          <h2>Where the numbers come from</h2>
+          <ul>
+            <li><strong>Nodes, propagation and the 40-block charts:</strong> the official XinFin stats server (<code id="src-stats">stats.xinfin.network</code>), the same feed behind xinfin.network and stats.xdc.network. Only nodes that choose to report appear.</li>
+            <li><strong>Latest blocks, masternodes and epochs:</strong> public XDC RPC (<code id="src-rpc">rpc.xdc.org</code>). Epochs are 900 blocks.</li>
+            <li><strong>Price:</strong> <a href="https://www.coingecko.com/en/coins/xdc-network" target="_blank" rel="noopener">CoinGecko</a>, refreshed every minute.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>© <span id="year">2026</span> XDC Outpost, by <a href="https://github.com/s4njk4n?tab=repositories" target="_blank" rel="noopener" data-goatcounter-click="github/profile">s4njk4n</a>. Price data by <a href="https://www.coingecko.com/" target="_blank" rel="noopener">CoinGecko</a>.</p>
+      <p><a href="/">More XDC tools</a></p>
+    </div>
+  </footer>
+
+  <div class="tip" id="tip" hidden></div>
+  <script src="app.js" defer></script>
+</body>
+</html>
